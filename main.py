@@ -8,7 +8,7 @@ app = FastAPI()
 # -------------------------------------------------------------
 # CONFIGURATION
 # -------------------------------------------------------------
-KINOCHECK_API_KEY = "YOUR_KINOCHECK_API_KEY"
+KINOCHECK_API_KEY = os.environ.get("KINOCHECK_API_KEY", "YOUR_KINOCHECK_API_KEY")
 KINOCHECK_API_HOST = "://kinocheck.com"
 INTRO_SKIP_SECONDS = 5  # Change this if you want to skip more/less
 # -------------------------------------------------------------
