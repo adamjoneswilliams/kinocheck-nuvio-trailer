@@ -1,6 +1,6 @@
 import os
 import requests
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
@@ -8,14 +8,13 @@ app = FastAPI()
 # -------------------------------------------------------------
 # CONFIGURATION
 # -------------------------------------------------------------
-KINOCHECK_API_KEY = os.environ.get("KINOCHECK_API_KEY", "YOUR_KINOCHECK_API_KEY")
-KINOCHECK_API_HOST = "://kinocheck.com"
-INTRO_SKIP_SECONDS = 5  # Change this if you want to skip more/less
+KINOCHECK_API_KEY = os.environ.get("KINOCHECK_API_KEY", "TZ5gJp6KtjES1fTviZVYWKQxoanq8XIS4doXAD20cG5hu0EqUQBPbwMdj3VaGJFi")
+KINOCHECK_API_HOST = "api.kinocheck.com"
+INTRO_SKIP_SECONDS = 5  
 # -------------------------------------------------------------
 
 @app.get("/manifest.json")
 def get_manifest():
-    """Returns the manifest required by AIOMetadata."""
     return {
         "id": "com.nuvio.kinocheck.bridge",
         "version": "1.0.0",
@@ -29,17 +28,12 @@ def get_manifest():
 
 @app.get("/stream/{video_type}/{imdb_id}.json")
 def get_stream(video_type: str, imdb_id: str):
-    """
-    Listens for AIOMetadata stream requests (e.g., /stream/movie/tt4154796.json)
-    Queries KinoCheck using the IMDb ID, and maps it to Stremio/Nuvio specs.
-    """
-    # Clean up the incoming ID if it has extra extensions (like .json from some clients)
-    clean_imdb_id = imdb_id.split(".")[0]
+    # FIXED LOGIC: Isolates the string 'tt4154796' safely even if extensions get sent
+    clean_imdb_id = imdb_id.replace(".json", "")
     
-    # Determine the endpoint based on content type
     endpoint = "shows" if video_type == "series" else "movies"
-    
     url = f"https://{KINOCHECK_API_HOST}/{endpoint}"
+    
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
@@ -52,21 +46,21 @@ def get_stream(video_type: str, imdb_id: str):
     }
 
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=5)
+        response = requests.get(url, headers=headers, params=params, timeout=6)
         
         if response.status_code != 200:
             return JSONResponse(content={"streams": []})
             
         data = response.json()
+        if not isinstance(data, dict):
+            return JSONResponse(content={"streams": []})
+            
         trailer_data = data.get("trailer")
-        
-        # If no trailer object is found in the response, return an empty array smoothly
         if not trailer_data or "youtube_video_id" not in trailer_data:
             return JSONResponse(content={"streams": []})
             
         yt_id = trailer_data["youtube_video_id"]
         
-        # Construct the stream payload AIOMetadata expects
         return {
             "streams": [
                 {
@@ -78,10 +72,8 @@ def get_stream(video_type: str, imdb_id: str):
         }
         
     except Exception as e:
-        # Fallback gracefully so your whole media layout doesn't crash on network hiccups
-        return JSONResponse(content={"streams": []})
+        return JSONResponse(content={"streams": [], "error": str(e)})
 
 if __name__ == "__main__":
     import uvicorn
-    # Launches the local server on port 8000
     uvicorn.run(app, host="0.0.0.0", port=8000)
