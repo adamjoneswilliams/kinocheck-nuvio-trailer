@@ -1,4 +1,3 @@
-
 import re
 import requests
 from fastapi import FastAPI
@@ -33,7 +32,12 @@ def get_manifest():
 
 @app.get("/stream/{video_type}/{video_id}.json")
 def get_stream(video_type: str, video_id: str):
-    if video_type not in ("movie", "series"):
+    # Map Stremio/Nuvio 'series' type to KinoCheck 'shows' endpoint
+    if video_type == "series":
+        endpoint = "shows"
+    elif video_type == "movie":
+        endpoint = "movies"
+    else:
         return JSONResponse({"streams": []})
 
     # Detect IMDb IDs (tt1234567) versus numeric TMDB IDs.
@@ -43,8 +47,6 @@ def get_stream(video_type: str, video_id: str):
         id_param = "tmdb_id"
     else:
         return JSONResponse({"streams": []})
-
-    endpoint = "shows" if video_type == "series" else "movies"
 
     params = {
         id_param: video_id,
@@ -65,6 +67,8 @@ def get_stream(video_type: str, video_id: str):
         if not isinstance(data, dict):
             return JSONResponse({"streams": []})
 
+        # FIX: The API structure documentation shows 'trailer' is a direct dictionary object,
+        # but in active setups it often arrives as a dictionary or needs standard dict safety checks.
         trailer = data.get("trailer")
         if not isinstance(trailer, dict):
             return JSONResponse({"streams": []})
