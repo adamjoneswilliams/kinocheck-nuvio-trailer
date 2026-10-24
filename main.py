@@ -1,21 +1,21 @@
 
-import os
+import re
 import requests
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
-KINOCHECK_API_KEY = os.environ.get("KINOCHECK_API_KEY")
-KINOCHECK_API_HOST = "api.kinocheck.de"
+KINOCHECK_API_HOST = "api.kinocheck.com"
 INTRO_SKIP_SECONDS = 5
+REQUEST_TIMEOUT = 10
 
 
 @app.get("/manifest.json")
 def get_manifest():
     return {
         "id": "com.nuvio.kinocheck.bridge",
-        "version": "1.0.1",
+        "version": "1.1.0",
         "name": "KinoCheck Trailer Bridge",
         "description": "KinoCheck trailers for Nuvio",
         "resources": [
@@ -31,48 +31,52 @@ def get_manifest():
     }
 
 
-@app.get("/stream/{video_type}/{imdb_id}.json")
-def get_stream(video_type: str, imdb_id: str):
+@app.get("/stream/{video_type}/{video_id}.json")
+def get_stream(video_type: str, video_id: str):
     if video_type not in ("movie", "series"):
         return JSONResponse({"streams": []})
 
-    if not KINOCHECK_API_KEY:
-        return JSONResponse({"streams": []}, status_code=503)
+    # Detect IMDb IDs (tt1234567) versus numeric TMDB IDs.
+    if re.fullmatch(r"tt\d+", video_id):
+        id_param = "imdb_id"
+    elif video_id.isdigit():
+        id_param = "tmdb_id"
+    else:
+        return JSONResponse({"streams": []})
 
     endpoint = "shows" if video_type == "series" else "movies"
 
-    url = f"https://{KINOCHECK_API_HOST}/{endpoint}"
-
-    headers = {
-        "Accept": "application/json",
-        "X-Api-Key": KINOCHECK_API_KEY,
-        "X-Api-Host": KINOCHECK_API_HOST
-    }
-
     params = {
-        "imdb_id": imdb_id,
+        id_param: video_id,
         "language": "en"
     }
 
     try:
         response = requests.get(
-            url, headers=headers, params=params, timeout=10
+            f"https://{KINOCHECK_API_HOST}/{endpoint}",
+            params=params,
+            timeout=REQUEST_TIMEOUT
         )
-        response.raise_for_status()
+
+        if response.status_code != 200:
+            return JSONResponse({"streams": []})
+
         data = response.json()
+        if not isinstance(data, dict):
+            return JSONResponse({"streams": []})
 
         trailer = data.get("trailer")
         if not isinstance(trailer, dict):
-            return {"streams": []}
+            return JSONResponse({"streams": []})
 
         yt_id = trailer.get("youtube_video_id")
-        if not yt_id:
-            return {"streams": []}
+        if not isinstance(yt_id, str) or not yt_id:
+            return JSONResponse({"streams": []})
 
         return {
             "streams": [
                 {
-                    "title": trailer.get("title", "KinoCheck Trailer"),
+                    "title": "KinoCheck Trailer",
                     "ytId": yt_id,
                     "url": (
                         f"https://www.youtube.com/watch?v={yt_id}"
@@ -83,4 +87,9 @@ def get_stream(video_type: str, imdb_id: str):
         }
 
     except (requests.RequestException, ValueError):
-        return {"streams": []}
+        return JSONResponse({"streams": []})
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
